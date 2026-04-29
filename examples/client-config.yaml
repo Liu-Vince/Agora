@@ -1,0 +1,12 @@
+hub: "http://10.0.0.5:7777"
+auth_token: ""
+identity:
+  name: "Frank's Claude Code"
+  human_user: "frank"
+agent:
+  listen_port: 0        # 0 = auto-assign free port
+  capabilities:
+    - chat
+    - code_review
+ui:
+  theme: "dark"

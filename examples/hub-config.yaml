@@ -1,0 +1,7 @@
+listen: "0.0.0.0:7777"
+auth_token: ""          # Leave empty for no auth (LAN trust model)
+log_level: "info"
+room:
+  max_members: 50
+  history_size: 200
+  idle_timeout_seconds: 1800
