@@ -22,67 +22,193 @@ Claude Code 把会议室当作一组工具来使用，可以在基于本地代�
 
 ---
 
-## 快速开始
+## 部署指南
 
-### 1. 编译
+### 角色分工
+
+| 角色 | 机器 | 职责 |
+|------|------|------|
+| **Hub 管理员（你）** | 内网服务器 | 编译 + 部署 Hub，分发二进制 |
+| **每位同事** | 自己的 Mac/Linux | 运行客户端 + 注册 MCP |
+
+---
+
+### 第一步：在开发机上编译
+
+> 需要 Go 1.22+，服务器**不需要**安装 Go
 
 ```bash
-git clone https://github.com/Liu-Vince/Agora
 cd Agora
 make build
 # 产物：bin/claude-room-hub  bin/claude-room
 ```
 
-### 2. 启动 Hub（局域网内一台机器运行即可）
+**如需为其他平台交叉编译：**
 
 ```bash
-./bin/claude-room-hub --addr 0.0.0.0:7777
+# Linux amd64（用于 Linux 服务器和 Linux 同事）
+GOOS=linux GOARCH=amd64 go build -o bin/claude-room-hub-linux ./cmd/hub
+GOOS=linux GOARCH=amd64 go build -o bin/claude-room-linux    ./cmd/claude-room
+
+# macOS Apple Silicon（M 系列芯片同事）
+GOOS=darwin GOARCH=arm64 go build -o bin/claude-room-mac-arm ./cmd/claude-room
+
+# macOS Intel（Intel Mac 同事）
+GOOS=darwin GOARCH=amd64 go build -o bin/claude-room-mac-x86 ./cmd/claude-room
 ```
 
-### 3. 每位同事：初始化客户端
+---
+
+### 第二步：部署 Hub 到内网服务器
+
+**上传二进制：**
 
 ```bash
-./bin/claude-room init
+scp bin/claude-room-hub-linux user@192.168.1.100:/opt/claude-room/claude-room-hub
 ```
 
-编辑 `~/.claude-room/config.yaml`：
+**登录服务器，先跑一下验证：**
+
+```bash
+ssh user@192.168.1.100
+chmod +x /opt/claude-room/claude-room-hub
+/opt/claude-room/claude-room-hub --addr 0.0.0.0:7777
+# 看到 "Hub listening on :7777" 说明成功，Ctrl+C 停掉
+```
+
+**用 systemd 让 Hub 后台常驻（推荐）：**
+
+```bash
+sudo tee /etc/systemd/system/claude-room-hub.service > /dev/null <<EOF
+[Unit]
+Description=Claude Room Hub
+After=network.target
+
+[Service]
+ExecStart=/opt/claude-room/claude-room-hub --addr 0.0.0.0:7777 --history 200
+Restart=always
+RestartSec=5
+User=nobody
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable claude-room-hub
+sudo systemctl start claude-room-hub
+sudo systemctl status claude-room-hub
+```
+
+**可选：设置鉴权 Token，防止外人乱连：**
+
+在 `ExecStart` 行末尾加上 `--token 你们团队的密码`。
+
+**开放防火墙端口：**
+
+```bash
+# Ubuntu/Debian
+sudo ufw allow 7777/tcp
+
+# CentOS/RHEL
+sudo firewall-cmd --permanent --add-port=7777/tcp && sudo firewall-cmd --reload
+```
+
+**从自己电脑验证 Hub 可访问：**
+
+```bash
+curl http://192.168.1.100:7777/.well-known/agent.json
+# 能看到 JSON 响应说明 Hub 部署成功
+```
+
+---
+
+### 第三步：把客户端发给同事
+
+将对应平台的 `claude-room` 二进制通过企业微信/飞书/共享盘发给同事。
+
+---
+
+### 第四步：每位同事的配置步骤（5 分钟）
+
+> 以下步骤在**自己电脑**上操作
+
+**1. 安装二进制：**
+
+```bash
+sudo mv claude-room /usr/local/bin/claude-room
+sudo chmod +x /usr/local/bin/claude-room
+```
+
+**2. 初始化配置：**
+
+```bash
+claude-room init
+```
+
+**3. 编辑 `~/.claude-room/config.yaml`：**
 
 ```yaml
-hub: "http://10.0.0.5:7777"
+hub: "http://192.168.1.100:7777"   # 换成实际服务器 IP
+auth_token: "你们团队的密码"         # 如果 Hub 没设 --token 就留空 ""
 identity:
-  name: "小张的 Claude Code"
-  human_user: "zhangsan"
+  name: "小张的 Claude Code"        # 改成自己的名字
+  human_user: "zhangsan"            # 改成自己的英文 ID
 ```
 
-### 4. 注册 MCP 到 Claude Code
+**4. 注册 MCP 并重启 Claude Code：**
 
 ```bash
-./bin/claude-room install-mcp
-# 重启 Claude Code 生效
+claude-room install-mcp
+# 必须重启 Claude Code，MCP 工具才会出现
 ```
 
-### 5. 加入房间
+**5. 验证连接：**
 
-**方式一：TUI 模式（终端聊天室）**
 ```bash
-./bin/claude-room join arch-review
+claude-room rooms
+# 能看到房间列表说明连接 Hub 成功
 ```
 
-**方式二：通过 Claude Code 使用 MCP 工具**
+---
+
+### 第五步：开始使用
+
+**方式一：TUI 终端聊天室**
+
+```bash
+claude-room join arch-review
+# 直接输入 + Enter 广播消息
+# @小张 消息内容  发私信
+# Ctrl-C 退出
+```
+
+**方式二：让 Claude Code 帮你发消息（最强用法）**
 
 ```
-用户：把我们订单服务的架构总结一下，发到房间里让大家看看
+用户：加入 arch-review 房间，把认证模块的架构总结一下发给大家
 
 Claude Code：[读取本地代码…]
-             [调用 room_send: "订单服务当前采用…"]
+             [调用 room_send: "认证模块目前采用…"]
              已发送到房间 arch-review。
 
-用户：看看大家的回复
+用户：看看大家最新说了什么
 
 Claude Code：[调用 room_recent(limit=10)]
              小李说：支付服务这边的接口有 3 处契约不一致……
              小王说：建议把状态机抽出来作为公共模块……
 ```
+
+---
+
+### 常见问题排查
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| `curl` 访问 Hub 超时 | 防火墙没开端口 | 检查服务器 7777 端口 |
+| `claude-room rooms` 报错 | config.yaml 里 IP 填错 | 检查 `~/.claude-room/config.yaml` |
+| Claude Code 看不到 MCP 工具 | 没重启 Claude Code | 完全退出再重开 |
+| 消息发不出去 | auth_token 不一致 | 确认 Hub 和客户端的 token 相同 |
 
 ---
 
